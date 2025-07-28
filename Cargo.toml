@@ -1,7 +1,8 @@
 [package]
 name = "filter_iter"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+rust-version = "1.75.0"
 repository = "https://github.com/ValuedMammal/filter-iter"
 description = "Compact block filter based RPC client"
 license = "MIT OR Apache-2.0"
@@ -10,14 +11,16 @@ readme = "README.md"
 [dependencies]
 bdk_core = { version = "0.6.0", default-features = false }
 bitcoin = { version = "0.32.0", default-features = false }
-
-# TODO: Consider moving to corepc client
 bitcoincore-rpc = { version = "0.19.0" }
 
 [dev-dependencies]
 anyhow = "1"
 bdk_testenv = "0.13.0"
 bdk_chain = { version = "0.23.0" }
+
+[features]
+default = ["std"]
+std = ["bitcoin/std"]
 
 [[example]]
 name = "filter_iter"

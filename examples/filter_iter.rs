@@ -1,14 +1,14 @@
+#![allow(clippy::print_stdout)]
 use std::time::Instant;
 
-use filter_iter::{Event, EventInner, FilterIter};
-
 use anyhow::Context;
-use bdk_chain::bitcoin::{Network, constants::genesis_block, secp256k1::Secp256k1};
+use bdk_chain::bitcoin::{constants::genesis_block, secp256k1::Secp256k1, Network};
 use bdk_chain::indexer::keychain_txout::KeychainTxOutIndex;
 use bdk_chain::local_chain::LocalChain;
 use bdk_chain::miniscript::Descriptor;
 use bdk_chain::{BlockId, ConfirmationBlockTime, IndexedTxGraph, SpkIterator};
 use bdk_testenv::anyhow;
+use filter_iter::{Event, FilterIter};
 
 // This example shows how BDK chain and tx-graph structures are updated using compact
 // filters syncing. Assumes a connection can be made to a bitcoin node via environment
@@ -16,8 +16,8 @@ use bdk_testenv::anyhow;
 
 // Usage: `cargo run -p bdk_bitcoind_rpc --example filter_iter`
 
-const EXTERNAL: &str = "tr(tprv8ZgxMBicQKsPczwfSDDHGpmNeWzKaMajLtkkNUdBoisixK3sW3YTC8subMCsTJB7sM4kaJJ7K1cNVM37aZoJ7dMBt2HRYLQzoFPqPMC8cTr/86'/1'/0'/0/*)";
-const INTERNAL: &str = "tr(tprv8ZgxMBicQKsPczwfSDDHGpmNeWzKaMajLtkkNUdBoisixK3sW3YTC8subMCsTJB7sM4kaJJ7K1cNVM37aZoJ7dMBt2HRYLQzoFPqPMC8cTr/86'/1'/0'/1/*)";
+const EXTERNAL: &str = "tr([83737d5e/86'/1'/0']tpubDDR5GgtoxS8fJyjjvdahN4VzV5DV6jtbcyvVXhEKq2XtpxjxBXmxH3r8QrNbQqHg4bJM1EGkxi7Pjfkgnui9jQWqS7kxHvX6rhUeriLDKxz/0/*)";
+const INTERNAL: &str = "tr([83737d5e/86'/1'/0']tpubDDR5GgtoxS8fJyjjvdahN4VzV5DV6jtbcyvVXhEKq2XtpxjxBXmxH3r8QrNbQqHg4bJM1EGkxi7Pjfkgnui9jQWqS7kxHvX6rhUeriLDKxz/1/*)";
 const SPK_COUNT: u32 = 25;
 const NETWORK: Network = Network::Signet;
 
@@ -51,47 +51,30 @@ fn main() -> anyhow::Result<()> {
     let rpc_client =
         bitcoincore_rpc::Client::new(&url, bitcoincore_rpc::Auth::CookieFile(cookie.into()))?;
 
-    // Initialize FilterIter
-    let cp = chain.tip();
-    let start_height = cp.height();
-    let mut iter = FilterIter::new_with_checkpoint(&rpc_client, cp)?;
+    // Initialize `FilterIter`
+    let mut spks = vec![];
     for (_, desc) in graph.index.keychains() {
-        let spks = SpkIterator::new_with_range(desc, 0..SPK_COUNT).map(|(_, spk)| spk);
-        iter.add_spks(spks);
+        spks.extend(SpkIterator::new_with_range(desc, 0..SPK_COUNT).map(|(_, s)| s));
     }
+    let iter = FilterIter::new(&rpc_client, chain.tip(), spks);
 
     let start = Instant::now();
 
-    // Sync
-    if let Some(tip) = iter.get_tip()? {
-        let blocks_to_scan = tip.height - start_height;
-
-        for event in iter.by_ref() {
-            let event = event?;
-            let curr = event.height();
-            // apply relevant blocks
-            if let Event::Block(EventInner { height, ref block }) = event {
+    for res in iter {
+        let event = res?;
+        match event {
+            Event::NoMatch { .. } => {}
+            Event::Block { cp, ref block } => {
+                // Apply relevant tx data
+                let height = cp.height();
                 let _ = graph.apply_block_relevant(block, height);
-                println!("Matched block {curr}");
+                // Update chain tip
+                let _ = chain.apply_update(cp)?;
+                println!("Matched block {height}");
             }
-            if curr % 1000 == 0 {
-                let progress = (curr - start_height) as f32 / blocks_to_scan as f32;
-                println!("[{:.2}%]", progress * 100.0);
+            Event::Tip { cp } => {
+                let _ = chain.apply_update(cp)?;
             }
-        }
-        // update chain
-        if let Some(cp) = iter.chain_update() {
-            let _ = chain.apply_update(cp)?;
-        }
-    }
-
-    for canon_tx in graph.graph().list_canonical_txs(
-        &chain,
-        chain.tip().block_id(),
-        bdk_chain::CanonicalizationParams::default(),
-    ) {
-        if !canon_tx.chain_position.is_confirmed() {
-            eprintln!("ERROR: expected canonical txs to be confirmed");
         }
     }
 
@@ -111,6 +94,19 @@ fn main() -> anyhow::Result<()> {
         for (index, utxo) in unspent {
             // (k, index) | value | outpoint |
             println!("{:?} | {} | {}", index, utxo.txout.value, utxo.outpoint);
+        }
+    }
+
+    for canon_tx in graph.graph().list_canonical_txs(
+        &chain,
+        chain.tip().block_id(),
+        bdk_chain::CanonicalizationParams::default(),
+    ) {
+        if !canon_tx.chain_position.is_confirmed() {
+            println!(
+                "ERROR: canonical tx should be confirmed {}",
+                canon_tx.tx_node.txid
+            );
         }
     }
 
