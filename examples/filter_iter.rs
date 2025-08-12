@@ -1,4 +1,3 @@
-#![allow(clippy::print_stdout)]
 use std::time::Instant;
 
 use anyhow::Context;
@@ -7,7 +6,6 @@ use bdk_chain::indexer::keychain_txout::KeychainTxOutIndex;
 use bdk_chain::local_chain::LocalChain;
 use bdk_chain::miniscript::Descriptor;
 use bdk_chain::{BlockId, ConfirmationBlockTime, IndexedTxGraph, SpkIterator};
-use bdk_testenv::anyhow;
 use filter_iter::{Event, FilterIter};
 
 // This example shows how BDK chain and tx-graph structures are updated using compact
@@ -61,20 +59,12 @@ fn main() -> anyhow::Result<()> {
     let start = Instant::now();
 
     for res in iter {
-        let event = res?;
-        match event {
-            Event::NoMatch { .. } => {}
-            Event::Block { cp, ref block } => {
-                // Apply relevant tx data
-                let height = cp.height();
-                let _ = graph.apply_block_relevant(block, height);
-                // Update chain tip
-                let _ = chain.apply_update(cp)?;
-                println!("Matched block {height}");
-            }
-            Event::Tip { cp } => {
-                let _ = chain.apply_update(cp)?;
-            }
+        let Event { cp, block } = res?;
+        let height = cp.height();
+        let _ = chain.apply_update(cp)?;
+        if let Some(block) = block {
+            let _ = graph.apply_block_relevant(&block, height);
+            println!("Matched block {height}");
         }
     }
 
@@ -103,7 +93,7 @@ fn main() -> anyhow::Result<()> {
         bdk_chain::CanonicalizationParams::default(),
     ) {
         if !canon_tx.chain_position.is_confirmed() {
-            println!(
+            eprintln!(
                 "ERROR: canonical tx should be confirmed {}",
                 canon_tx.tx_node.txid
             );
