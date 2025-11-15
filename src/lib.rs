@@ -9,5 +9,6 @@ extern crate alloc;
 extern crate std;
 
 mod filter_iter;
-
 pub use filter_iter::*;
+
+pub use simplerpc;

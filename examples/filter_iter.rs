@@ -7,6 +7,7 @@ use bdk_chain::local_chain::LocalChain;
 use bdk_chain::miniscript::Descriptor;
 use bdk_chain::{BlockId, ConfirmationBlockTime, IndexedTxGraph, SpkIterator};
 use filter_iter::{Event, FilterIter};
+use simplerpc::jsonrpc;
 
 // This example shows how BDK chain and tx-graph structures are updated using compact
 // filters syncing. Assumes a connection can be made to a bitcoin node via environment
@@ -45,9 +46,15 @@ fn main() -> anyhow::Result<()> {
 
     // Configure RPC client
     let url = std::env::var("RPC_URL").context("must set RPC_URL")?;
-    let cookie = std::env::var("RPC_COOKIE").context("must set RPC_COOKIE")?;
-    let rpc_client =
-        bitcoincore_rpc::Client::new(&url, bitcoincore_rpc::Auth::CookieFile(cookie.into()))?;
+    let cookie_path = std::env::var("RPC_COOKIE").context("must set RPC_COOKIE")?;
+    let cookie = std::fs::read_to_string(cookie_path).unwrap();
+    let transport = jsonrpc::simple_http::Builder::new()
+        .url(&url)
+        .unwrap()
+        .timeout(std::time::Duration::from_secs(30))
+        .cookie_auth(cookie)
+        .build();
+    let rpc_client = simplerpc::Client::with_transport(transport);
 
     // Initialize `FilterIter`
     let mut spks = vec![];
