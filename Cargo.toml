@@ -11,7 +11,11 @@ readme = "README.md"
 [dependencies]
 bdk_core = { version = "0.6.1", default-features = false }
 bitcoin = { version = "0.32.7", default-features = false }
-simplerpc = { git = "https://github.com/ValuedMammal/simple-rpc-client" }
+
+[dependencies.simplerpc]
+git = "https://github.com/ValuedMammal/simple-rpc-client"
+branch = "master"
+# path = "../simple-rpc-client"
 
 [dev-dependencies]
 anyhow = "1"
