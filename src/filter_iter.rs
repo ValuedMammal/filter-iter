@@ -202,6 +202,13 @@ mod test {
         })
     }
 
+    fn simplerpc_client(env: &TestEnv) -> anyhow::Result<simplerpc::Client> {
+        Ok(simplerpc::Client::new(
+            &env.bitcoind.rpc_url(),
+            simplerpc::Auth::CookieFile(env.bitcoind.workdir().join("regtest/.cookie")),
+        )?)
+    }
+
     #[test]
     fn filter_iter_matches_blocks() -> anyhow::Result<()> {
         let env = testenv()?;
@@ -229,15 +236,7 @@ mod test {
             hash: genesis_hash,
         });
 
-        let cookie_path = env.bitcoind.workdir().join("regtest/.cookie");
-        let cookie = std::fs::read_to_string(cookie_path)?;
-        let transport = jsonrpc::simple_http::Builder::new()
-            .url(&env.bitcoind.rpc_url())
-            .unwrap()
-            .timeout(std::time::Duration::from_secs(60))
-            .cookie_auth(cookie)
-            .build();
-        let rpc_client = simplerpc::Client::with_transport(transport);
+        let rpc_client = simplerpc_client(&env)?;
         let iter = FilterIter::new(&rpc_client, cp, vec![addr.script_pubkey()]);
 
         for res in iter {
@@ -251,62 +250,65 @@ mod test {
         Ok(())
     }
 
-    // #[test]
-    // fn filter_iter_error_wrong_network() -> anyhow::Result<()> {
-    //     let env = testenv()?;
-    //     let _ = env.mine_blocks(10, None)?;
+    #[test]
+    fn filter_iter_error_wrong_network() -> anyhow::Result<()> {
+        let env = testenv()?;
+        let _ = env.mine_blocks(10, None)?;
 
-    //     // Try to initialize FilterIter with a CP on the wrong network
-    //     let block_id = BlockId {
-    //         height: 0,
-    //         hash: bitcoin::hashes::Hash::hash(b"wrong-hash"),
-    //     };
-    //     let cp = CheckPoint::new(block_id);
-    //     let mut iter = FilterIter::new(&env.bitcoind.client, cp, vec![ScriptBuf::new()]);
-    //     assert!(matches!(iter.next(), Some(Err(Error::ReorgDepthExceeded))));
+        // Try to initialize FilterIter with a CP on the wrong network
+        let block_id = BlockId {
+            height: 0,
+            hash: bitcoin::hashes::Hash::hash(b"wrong-hash"),
+        };
+        let cp = CheckPoint::new(block_id);
+        let rpc_client = simplerpc_client(&env)?;
+        let mut iter = FilterIter::new(&rpc_client, cp, vec![ScriptBuf::new()]);
+        assert!(matches!(iter.next(), Some(Err(Error::ReorgDepthExceeded))));
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
-    // // Test that while a reorg is detected we delay incrementing the best height
-    // #[test]
-    // fn filter_iter_detects_reorgs() -> anyhow::Result<()> {
-    //     const MINE_TO: u32 = 16;
+    // Test that while a reorg is detected we delay incrementing the best height
+    #[test]
+    fn filter_iter_detects_reorgs() -> anyhow::Result<()> {
+        const MINE_TO: u32 = 16;
 
-    //     let env = testenv()?;
-    //     let rpc = env.rpc_client();
-    //     while rpc.get_block_count()? < MINE_TO as u64 {
-    //         let _ = env.mine_blocks(1, None)?;
-    //     }
+        let env = testenv()?;
+        let rpc = env.rpc_client();
+        while rpc.get_block_count()? < MINE_TO as u64 {
+            let _ = env.mine_blocks(1, None)?;
+        }
 
-    //     let genesis_hash = env.genesis_hash()?;
-    //     let cp = CheckPoint::new(BlockId {
-    //         height: 0,
-    //         hash: genesis_hash,
-    //     });
+        let genesis_hash = env.genesis_hash()?;
+        let cp = CheckPoint::new(BlockId {
+            height: 0,
+            hash: genesis_hash,
+        });
 
-    //     let spk = ScriptBuf::from_hex("0014446906a6560d8ad760db3156706e72e171f3a2aa")?;
-    //     let mut iter = FilterIter::new(&env.bitcoind.client, cp, vec![spk]);
+        let spk = ScriptBuf::from_hex("0014446906a6560d8ad760db3156706e72e171f3a2aa")?;
 
-    //     // Process events to height (MINE_TO - 1)
-    //     loop {
-    //         if iter.next().unwrap()?.height() == MINE_TO - 1 {
-    //             break;
-    //         }
-    //     }
+        let rpc_client = simplerpc_client(&env)?;
+        let mut iter = FilterIter::new(&rpc_client, cp, vec![ScriptBuf::new()]);
 
-    //     for _ in 0..3 {
-    //         // Invalidate and remine 1 block
-    //         let _ = env.reorg(1)?;
+        // Process events to height (MINE_TO - 1)
+        loop {
+            if iter.next().unwrap()?.height() == MINE_TO - 1 {
+                break;
+            }
+        }
 
-    //         // Call next. If we detect a reorg, we'll see no change in the event height
-    //         assert_eq!(iter.next().unwrap()?.height(), MINE_TO - 1);
-    //     }
+        for _ in 0..3 {
+            // Invalidate and remine 1 block
+            let _ = env.reorg(1)?;
 
-    //     // If no reorg, then height should increment normally from here on
-    //     assert_eq!(iter.next().unwrap()?.height(), MINE_TO);
-    //     assert!(iter.next().is_none());
+            // Call next. If we detect a reorg, we'll see no change in the event height
+            assert_eq!(iter.next().unwrap()?.height(), MINE_TO - 1);
+        }
 
-    //     Ok(())
-    // }
+        // If no reorg, then height should increment normally from here on
+        assert_eq!(iter.next().unwrap()?.height(), MINE_TO);
+        assert!(iter.next().is_none());
+
+        Ok(())
+    }
 }
