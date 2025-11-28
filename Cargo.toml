@@ -14,8 +14,9 @@ bitcoin = { version = "0.32.7", default-features = false }
 
 [dependencies.simplerpc]
 git = "https://github.com/ValuedMammal/simple-rpc-client"
-branch = "master"
 # path = "../simple-rpc-client"
+default-features = false
+features = ["28_0"]
 
 [dev-dependencies]
 anyhow = "1"
