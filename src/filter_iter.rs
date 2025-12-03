@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use bdk_core::bitcoin;
 use bdk_core::{BlockId, CheckPoint};
-use bitcoin::{bip158::BlockFilter, Block, ScriptBuf};
+use bitcoin::{bip158, Block, ScriptBuf};
 use corepc_client::client_sync;
 use corepc_client::types::model::GetBlockHeaderVerbose;
 use simplerpc::corepc_client;
@@ -115,8 +115,7 @@ impl Iterator for FilterIter<'_> {
             });
 
             let mut block = None;
-            let filter =
-                BlockFilter::new(self.client.get_block_filter(&next_hash)?.filter.as_slice());
+            let filter = self.client.get_block_filter(&next_hash)?.filter;
             if filter
                 .match_any(&next_hash, self.spks.iter().map(ScriptBuf::as_ref))
                 .map_err(Error::Bip158)?
@@ -141,7 +140,7 @@ pub enum Error {
     /// RPC error
     Rpc(client_sync::Error),
     /// `bitcoin::bip158` error
-    Bip158(bitcoin::bip158::Error),
+    Bip158(bip158::Error),
     /// Max reorg depth exceeded.
     ReorgDepthExceeded,
     /// Error converting an integer
@@ -288,7 +287,7 @@ mod test {
         let spk = ScriptBuf::from_hex("0014446906a6560d8ad760db3156706e72e171f3a2aa")?;
 
         let rpc_client = simplerpc_client(&env)?;
-        let mut iter = FilterIter::new(&rpc_client, cp, vec![ScriptBuf::new()]);
+        let mut iter = FilterIter::new(&rpc_client, cp, vec![spk]);
 
         // Process events to height (MINE_TO - 1)
         loop {
